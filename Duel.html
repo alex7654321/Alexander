@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <!--
   Faceball (formerly Soccer Duel Online)
-  Version 2.1 (2026-11-06)
+  Version 2.3 (2026-11-14)
   Changes in this version:
+    2.3  Easy is more challenging: the computer now guards its goal when the player has the ball, and decides faster.
+    2.2  Two difficulty levels against the computer: Easy (as before) and Hard.
     2.1  Phone layout for two players on one screen: the Pause/New game/Settings buttons sit beside the field, away from both pads.
     2.0  Phone layout: smaller text; online and one-player games put the Pause/New game/Settings/Chat buttons far from the direction pad,
          and in landscape the field is on the left with the buttons and the pad on the right.
@@ -240,6 +242,12 @@ body.online #greenSteer,body.solo #greenSteer{order:5;margin-top:10px}
       <input type="text" id="nameRed" maxlength="12" autocomplete="off" placeholder="Name" required>
     </label>
     <label><input type="checkbox" id="vsComputer"> Player 2 is the computer</label>
+    <label id="levelRow" hidden>Level
+      <select id="aiLevel">
+        <option value="easy">Easy</option>
+        <option value="hard">Hard</option>
+      </select>
+    </label>
     <div class="row">
       <button>Start</button>
       <button type="button" id="onlineBtn">Play online…</button>
@@ -296,7 +304,7 @@ body.online #greenSteer,body.solo #greenSteer{order:5;margin-top:10px}
 </dialog>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
-const VERSION='2.1'; // keep in step with the comment at the top of the file
+const VERSION='2.3'; // keep in step with the comment at the top of the file
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 const W=cv.width,H=cv.height;
 let paused=false,speed=2,connLost=false,gotState=false;
@@ -356,17 +364,32 @@ function scoreGoal(which,b){
 }
 
 // ---- The computer player ----
-// When Player 2 is the computer it steers the red ball with a deliberately simple rule, every 45 frames:
-// run straight at the ball, and once it holds the ball, run toward the green goal. Its direction is
-// rounded to one of the eight directions and is often a random one, so it is clumsy and can be beaten.
-let vsComputer=false,aiFrames=0;
-const AI_EVERY=45,AI_MISTAKE=0.6; // decide every 45 frames (about 0.75 s); a random move 60% of the time
+// When Player 2 is the computer it steers the red ball with a simple rule: run at the ball, and once it holds the
+// ball, run toward the green goal. Its direction is rounded to one of the eight directions, as for a person.
+// Easy: it decides fairly slowly (every 40 frames, about 0.65 s) and makes a random move 45% of the time, so it is clumsy;
+// when the player has the ball it moves to block the way to its goal.
+// Hard: it decides often (every 20 frames, about 0.3 s), rarely goes wrong, and aims where the ball (or the player
+// carrying it) is going to be, not where it is now.
+let vsComputer=false,aiFrames=0,aiLevel='easy';
+const AI_LEVELS={
+  easy:{every:40,mistake:0.45,lead:0,guard:0.5},
+  hard:{every:20,mistake:0.15,lead:0.5,guard:0}
+};
 function aiMove(){
+  const L=AI_LEVELS[aiLevel]||AI_LEVELS.easy;
   const red=balls[0],ball=balls[2];
   const has=ball.owner===red;
-  const tx=has?W/2:ball.x,ty=has?H:ball.y; // the ball, or the middle of the green goal
+  let tx=has?W/2:ball.x,ty=has?H:ball.y; // the ball, or the middle of the green goal
+  if(!has&&L.lead){ // aim ahead of the ball: every ball moves at the same speed, so it travels about as far as the distance between us
+    const d=Math.hypot(tx-red.x,ty-red.y);
+    tx=Math.max(0,Math.min(W,tx+ball.vx*d*L.lead));
+    ty=Math.max(0,Math.min(H,ty+ball.vy*d*L.lead));
+  }
+  if(L.guard&&ball.owner&&!has){ // the player has the ball: go toward the spot between the player and the computer's own (top) goal, to block the way
+    tx+=(W/2-tx)*L.guard;ty+=(FT+30-ty)*L.guard;
+  }
   let a=Math.atan2(ty-red.y,tx-red.x);
-  if(Math.random()<AI_MISTAKE)a=Math.floor(Math.random()*8)*Math.PI/4;
+  if(Math.random()<L.mistake)a=Math.floor(Math.random()*8)*Math.PI/4;
   a=Math.round(a/(Math.PI/4))*(Math.PI/4); // one of the eight directions
   red.vx=Math.cos(a);red.vy=Math.sin(a);
 }
@@ -499,7 +522,7 @@ function step(){
     }
   }
   // The computer decides every few frames, but waits while the "GOAL!" message is showing.
-  if(vsComputer&&flash===0&&++aiFrames>=AI_EVERY){aiFrames=0;aiMove()}
+  if(vsComputer&&flash===0&&++aiFrames>=(AI_LEVELS[aiLevel]||AI_LEVELS.easy).every){aiFrames=0;aiMove()}
   for(const p of [red,green])if(p.cool>0)p.cool--;
   if(flash>0)flash--;
 }
@@ -760,11 +783,12 @@ function loadNames(){
   catch(e){return null}
 }
 function saveNames(){
-  try{localStorage.setItem(NAMES_KEY,JSON.stringify({red:names.red,green:names.green,computer:vsComputer}))}catch(e){}
+  try{localStorage.setItem(NAMES_KEY,JSON.stringify({red:names.red,green:names.green,computer:vsComputer,level:aiLevel}))}catch(e){}
 }
 // The computer needs no name typed in.
 const vsBox=document.getElementById('vsComputer');
 function syncComputerBox(){
+  document.getElementById('levelRow').hidden=!vsBox.checked; // the level only matters against the computer
   const nameBox=document.getElementById('nameRed');
   nameBox.disabled=vsBox.checked;
   if(vsBox.checked)nameBox.value='Computer';
@@ -777,6 +801,7 @@ function openStart(){
   document.getElementById('nameRed').value=s?s.red:'';
   document.getElementById('nameGreen').value=s?s.green:'';
   vsBox.checked=started?vsComputer:!!(s&&s.computer);
+  document.getElementById('aiLevel').value=started?aiLevel:((s&&AI_LEVELS[s.level])?s.level:'easy');
   syncComputerBox();
   document.getElementById('startCancel').hidden=!started; // Cancel only makes sense once a game is running
   startWin.showModal();
@@ -795,6 +820,7 @@ startWin.addEventListener('cancel',e=>{if(!started)e.preventDefault()});
 document.getElementById('startCancel').onclick=()=>startWin.close();
 document.getElementById('startForm').addEventListener('submit',()=>{
   vsComputer=vsBox.checked;
+  aiLevel=document.getElementById('aiLevel').value;
   names.red=vsComputer?'Computer':(document.getElementById('nameRed').value.trim()||'Red');
   names.green=document.getElementById('nameGreen').value.trim()||'Green';
   saveNames();
