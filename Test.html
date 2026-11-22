@@ -1,0 +1,33 @@
+﻿<!DOCTYPE html>
+<html>
+  <body>
+    <button onclick="saveResult('Dad', 'Noa', 5, 3)">Send test result</button>
+    <p id="msg"></p>
+
+
+    <script>
+      const RESULTS_URL = 'https://script.google.com/macros/s/AKfycbwrEaYRGmpjcz48UiJ55J48jJJk_J9RjWrHSGDzXleqf9OI287vkXGYvVhn-lorwY0-/exec';
+
+
+      function saveResult(redName, greenName, redScore, greenScore) {
+        document.getElementById('msg').textContent = 'Sending...';
+        fetch(RESULTS_URL, {
+          method: 'POST',
+          body: JSON.stringify({
+            red: redName,
+            green: greenName,
+            redScore: redScore,
+            greenScore: greenScore
+          })
+        })
+          .then(response => response.json())
+          .then(result => {
+            document.getElementById('msg').textContent = 'Saved!';
+          })
+          .catch(error => {
+            document.getElementById('msg').textContent = 'Error: ' + error;
+          });
+      }
+    </script>
+  </body>
+</html>
